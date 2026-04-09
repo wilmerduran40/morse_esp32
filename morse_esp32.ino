@@ -1,50 +1,72 @@
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Arduino_GFX_Library.h>
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+// --- DEFINICIONES DE COLORES ---
+#define BLACK 0x0000
+#define WHITE 0xFFFF
+#define GREEN 0x07E0
+#define BLUE  0x001F
+#define RED   0xF800
+#define YELLOW 0xFFE0
 
-// Pines
+// --- CONFIGURACIÓN PANTALLA ST7789 ---
+// Pines: DC=16, CS=5, SCK=18, MOSI=23, RST=17
+Arduino_DataBus *bus = new Arduino_ESP32SPI(16, 5, 18, 23);
+Arduino_GFX *gfx = new Arduino_ST7789(
+  bus, 17, 3 /* Rotación hacia abajo */, true,
+  170, 320, 35, 0, 35, 0);
+
+// --- PINES DEL SISTEMA ---
 const int sensorPin = 34;
 const int speakerPin = 25;
-const int redPin = 18;
+const int redPin = 27;   // Cambiado para no chocar con SPI (era 18)
 const int greenPin = 19;
-const int bluePin = 17; 
+const int bluePin = 4;   // Cambiado para no chocar con SPI (era 17)
+  // --- RESET MANUAL POR BOTÓN EN PIN 34 ---
+  int lecturaBoton = analogRead(sensorPin); 
 
-// Variables de lógica
-int umbral = 2500;
-int hz= 1000;
+// --- VARIABLES DE LÓGICA ---
+int umbral = 3500;
+int hz = 1000;
 String mensajeMorse = "";
 String palabraCompleta = "";
 unsigned long tiempoInicio, tiempoApagado;
 bool transmitiendo = false;
-bool espacioAgregado = false; // Control para no repetir espacios
+bool espacioAgregado = false;
 
-void actualizarOLED() {
-  display.clearDisplay();
-  display.setTextColor(WHITE);
+// --- FUNCIÓN PARA DIBUJAR EN LA TFT ---
+void actualizarPantalla() {
+  gfx->fillScreen(BLACK);
   
-  // Título
-  display.setTextSize(1);
-  display.setCursor(0,0);
-  display.println("RECEPTOR LI-FI");
-  display.drawLine(0, 10, 128, 10, WHITE);
+  // 1. Título con marco azul
+  gfx->drawRect(0, 0, 320, 40, BLUE); 
+  gfx->setCursor(40, 10); 
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(2);
+  gfx->println("COMUNICACION LI-FI");
+
+  // 2. Sección Morse (Puntos y rayas)
+  gfx->setCursor(15, 55);
+  gfx->setTextColor(YELLOW);
+  gfx->setTextSize(2);
+  gfx->print("CODIGO:");
   
-  // Morse actual (Lo que se ve en el momento de enviar codigo morse )
-  display.setCursor(0, 15);
-  display.setTextSize(2);
-  display.print("-> "); 
-  display.println(mensajeMorse);
+  gfx->setCursor(15, 85);
+  gfx->setTextSize(4); // Morse más grande (Tamaño 4) para que resalte
+  gfx->println(mensajeMorse);
+
+  // 3. Línea divisoria
+  gfx->drawFastHLine(0, 120, 320, WHITE); 
   
-  // Mensaje acumulado
-  display.setCursor(0, 45);
-  display.setTextSize(1);
-  display.print("MSG: ");
-  display.println(palabraCompleta);
+  // 4. Traducción final
+  gfx->setCursor(15, 130);
+  gfx->setTextColor(WHITE);
+  gfx->setTextSize(1); // Etiqueta pequeña
+  gfx->println("TRADUCCION:");
   
-  display.display();
+  gfx->setCursor(15, 145);
+  gfx->setTextColor(GREEN);
+  gfx->setTextSize(3); // Resultado en verde y grande
+  gfx->println(palabraCompleta);
 }
 
 String traducirMorse(String morse) {
@@ -61,22 +83,23 @@ String traducirMorse(String morse) {
   if (morse == "..-") return "U"; if (morse == "...-") return "V";
   if (morse == ".--") return "W"; if (morse == "-..-") return "X";
   if (morse == "-.--") return "Y"; if (morse == "--..") return "Z";
+  if (morse == "...---...") return  "SOS";
   return "?";
 }
 
 void setup() {
   Serial.begin(115200);
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
-    for(;;);  // este for se usa por seguridad si la pantalla no responde se queda esperando aqui
-  }
-  actualizarOLED();
+  
+  // Inicializar Pantalla
+  if (!gfx->begin()) { Serial.println("Error Pantalla"); }
+  actualizarPantalla();
 
   pinMode(sensorPin, INPUT);
   pinMode(speakerPin, OUTPUT);
   pinMode(redPin, OUTPUT);
   pinMode(greenPin, OUTPUT);
   pinMode(bluePin, OUTPUT);
-  digitalWrite(bluePin, HIGH);
+  
 }
 
 void loop() {
@@ -96,10 +119,10 @@ void loop() {
   if (valorLuz > umbral && !transmitiendo) {
     tiempoInicio = millis();
     transmitiendo = true;
-    espacioAgregado = false; // Permitir nuevo espacio tras detectar luz
+    espacioAgregado = false;
   }
 
-  // Detectar fin de pulso (punto o raya)
+  // Detectar fin de pulso
   if (valorLuz < (umbral - 200) && transmitiendo) {
     unsigned long duracion = millis() - tiempoInicio;
     transmitiendo = false;
@@ -108,30 +131,35 @@ void loop() {
     if (duracion > 30 && duracion < 350) mensajeMorse += ".";
     else if (duracion >= 350) mensajeMorse += "-";
     
-    actualizarOLED();
+    actualizarPantalla();
   }
 
-  // --- LÓGICA DE TIEMPOS DE ESPERA ---
-
-  // 1. FIN DE LETRA (0.35 segundos de silencio)
+  // FIN DE LETRA (0.35 seg)
   if (!transmitiendo && (millis() - tiempoApagado > 350) && mensajeMorse != "") {
     palabraCompleta += traducirMorse(mensajeMorse);
     mensajeMorse = "";
     digitalWrite(redPin, HIGH); delay(50); digitalWrite(redPin, LOW);
-    actualizarOLED();
+    actualizarPantalla();
   }
 
-  // 2. DETECTAR ESPACIO (0.65 segundos de silencio)
-  if (!transmitiendo && (millis() - tiempoApagado > 650) && !espacioAgregado && palabraCompleta != "") {
-    palabraCompleta += " "; // Agregamos el espacio
+  // DETECTAR ESPACIO (0.65 seg)
+  if (!transmitiendo && (millis() - tiempoApagado > 700) && !espacioAgregado && palabraCompleta != "") {
+    palabraCompleta += " ";
     espacioAgregado = true; 
-    actualizarOLED();
+    actualizarPantalla();
   }
 
-  // 3. REINICIAR PANTALLA (10 segundos de inactividad)
+  // REINICIAR (5 seg)
   if (!transmitiendo && (millis() - tiempoApagado > 10000) && palabraCompleta != "") {
     palabraCompleta = "";
-    actualizarOLED();
-    digitalWrite(bluePin, HIGH);
+    actualizarPantalla();
+
   }
+
+
+    
+
+    
+    
+  
 }
