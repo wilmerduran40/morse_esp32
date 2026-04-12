@@ -9,7 +9,6 @@
 #define YELLOW 0xFFE0
 
 // --- CONFIGURACIÓN PANTALLA ST7789 ---
-// Ajusta los pines según tu conexión física si es necesario
 Arduino_DataBus *bus = new Arduino_ESP32SPI(16, 5, 18, 23);
 Arduino_GFX *gfx = new Arduino_ST7789(
   bus, 17, 3 /* Rotación Horizontal */, true,
@@ -23,7 +22,7 @@ const int greenPin = 19;
 const int bluePin = 4; 
 
 // --- VARIABLES DE LÓGICA ---
-int umbral = 3500;
+int umbral = 2500; // Ajustado para mayor sensibilidad
 int hz = 1000;
 String mensajeMorse = "";
 String palabraCompleta = "";
@@ -32,11 +31,8 @@ bool transmitiendo = false;
 bool espacioAgregado = false;
 bool letraProcesada = true;
 
-// --- FUNCIONES ---
-
+// --- TRADUCTOR ---
 String traducirMorse(String morse) {
-  if (morse == ".....") return " "; // 5 puntos para espacio manual
-  if (morse == "---") return "O";   // Ejemplo específico
   if (morse == "...---...") return "SOS";
   if (morse == ".-") return "A"; if (morse == "-...") return "B";
   if (morse == "-.-.") return "C"; if (morse == "-..") return "D";
@@ -51,11 +47,11 @@ String traducirMorse(String morse) {
   if (morse == "..-") return "U"; if (morse == "...-") return "V";
   if (morse == ".--") return "W"; if (morse == "-..-") return "X";
   if (morse == "-.--") return "Y"; if (morse == "--..") return "Z";
-  return "?";
+  return ""; // Si no reconoce, no agrega nada
 }
 
 void actualizarPantalla() {
-  // Dibujar encabezado solo si es necesario (puedes mover esto al setup)
+  // Encabezado fijo
   gfx->drawRect(0, 0, 320, 40, BLUE); 
   gfx->setCursor(40, 10); 
   gfx->setTextColor(WHITE);
@@ -67,7 +63,7 @@ void actualizarPantalla() {
   gfx->setTextSize(2);
   gfx->print("CODIGO:");
   
-  // Limpiar y escribir el código Morse actual
+  // Área del código Morse (Puntos y rayas)
   gfx->fillRect(15, 80, 290, 35, BLACK); 
   gfx->setCursor(15, 85);
   gfx->setTextSize(4); 
@@ -80,7 +76,7 @@ void actualizarPantalla() {
   gfx->setTextSize(1);
   gfx->println("TRADUCCION:");
   
-  // Limpiar y escribir la palabra completa
+  // Área de la palabra traducida
   gfx->fillRect(15, 145, 300, 40, BLACK);
   gfx->setCursor(15, 145);
   gfx->setTextColor(GREEN);
@@ -99,31 +95,22 @@ void setup() {
   pinMode(greenPin, OUTPUT);
   pinMode(bluePin, OUTPUT);
   
+  // Apagar LED azul que causaba confusión
+  digitalWrite(bluePin, LOW);
+  
   actualizarPantalla();
 }
 
 void loop() {
   int valorLuz = analogRead(sensorPin);
 
-  // --- REINICIO MANUAL (Por intensidad de luz muy alta) ---
-  if (valorLuz > 4050) {
-    palabraCompleta = "";
-    mensajeMorse = "";
-    gfx->fillScreen(BLACK);
-    actualizarPantalla();
-    tone(speakerPin, 1500, 300);
-    digitalWrite(bluePin, HIGH);
-    delay(1000);
-    digitalWrite(bluePin, LOW);
-    return;
-  }
-
-  // --- DETECCIÓN DE PULSOS (LÓGICA DE TIEMPO REAL) ---
+  // --- DETECCIÓN DE PULSOS ---
   if (valorLuz > umbral) {
     if (!transmitiendo) {
       tiempoInicio = millis();
       transmitiendo = true;
       letraProcesada = false;
+      espacioAgregado = false; // Resetear bandera de espacio al recibir señal
     }
     tone(speakerPin, hz);
     digitalWrite(greenPin, HIGH);
@@ -136,6 +123,7 @@ void loop() {
       transmitiendo = false;
       tiempoApagado = millis();
       
+      // Clasificación de pulso
       if (duracion > 20 && duracion < 300) mensajeMorse += ".";
       else if (duracion >= 300) mensajeMorse += "-";
       
@@ -143,30 +131,29 @@ void loop() {
     }
   }
 
-  // --- PROCESAR LETRA (Si pasan más de 600ms sin pulso) ---
-  if (!transmitiendo && !letraProcesada && (millis() - tiempoApagado > 600) && mensajeMorse != "") {
+  // --- PROCESAR LETRA (Final de una letra: pausa de 600ms) ---
+  if (!transmitiendo && !letraProcesada && (millis() - tiempoApagado > 450) && mensajeMorse != "") {
     String letra = traducirMorse(mensajeMorse);
-    if (letra != "?") {
-      palabraCompleta += letra;
-    }
-    mensajeMorse = ""; // Limpiamos el buffer para la siguiente letra
+    palabraCompleta += letra;
+    mensajeMorse = ""; 
     letraProcesada = true;
     actualizarPantalla();
   }
 
-  // --- AÑADIR ESPACIO AUTOMÁTICO (Si pasan más de 2 segundos) ---
-  if (!transmitiendo && (millis() - tiempoApagado > 2000) && !espacioAgregado && palabraCompleta != "") {
+  // --- ESPACIO ENTRE PALABRAS (Pausa de 2.5 segundos) ---
+  if (!transmitiendo && (millis() - tiempoApagado > 1000) && !espacioAgregado && palabraCompleta != "") {
     if (!palabraCompleta.endsWith(" ")) {
       palabraCompleta += " ";
     }
     espacioAgregado = true; 
     actualizarPantalla();
   }
-
-  // --- LIMPIEZA AUTOMÁTICA POR INACTIVIDAD (10 segundos) ---
-  if (!transmitiendo && (millis() - tiempoApagado > 10000) && palabraCompleta != "") {
+  // --- LIMPIEZA AUTOMÁTICA POR INACTIVIDAD (5 segundos) ---
+  if (!transmitiendo && (millis() - tiempoApagado > 5000) && palabraCompleta != "") {
     palabraCompleta = "";
     mensajeMorse = "";
     actualizarPantalla();
   }
 }
+
+  
