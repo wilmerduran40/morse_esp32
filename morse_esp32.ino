@@ -1,5 +1,7 @@
 #include <Arduino_GFX_Library.h>
 
+
+
 // --- DEFINICIONES DE COLORES ---
 #define BLACK  0x0000
 #define WHITE  0xFFFF
@@ -10,8 +12,8 @@
 
 // --- CONFIGURACIÓN PANTALLA ST7789 ---
 Arduino_DataBus *bus = new Arduino_ESP32SPI(16, 5, 18, 23);
-Arduino_GFX *gfx = new Arduino_ST7789(
-  bus, 17, 3 /* Rotación Horizontal */, true,
+  Arduino_GFX *gfx = new Arduino_ST7789(
+  bus, 17, 3 /* Rotación */, true,
   170, 320, 35, 0, 35, 0);
 
 // --- PINES DEL SISTEMA ---
@@ -37,7 +39,7 @@ String traducirMorse(String morse) {
   if (morse == ".-") return "A"; if (morse == "-...") return "B";
   if (morse == "-.-.") return "C"; if (morse == "-..") return "D";
   if (morse == ".") return "E"; if (morse == "..-.") return "F";
-  if (morse == "--.") return "G"; if (morse == "....") return "H";
+  if (morse == "--.") return "G"; if (morse == "....") return "H"; 
   if (morse == "..") return "I"; if (morse == ".---") return "J";
   if (morse == "-.-") return "K"; if (morse == ".-..") return "L";
   if (morse == "--") return "M"; if (morse == "-.") return "N";
@@ -45,9 +47,14 @@ String traducirMorse(String morse) {
   if (morse == "--.-") return "Q"; if (morse == ".-.") return "R";
   if (morse == "...") return "S"; if (morse == "-") return "T";
   if (morse == "..-") return "U"; if (morse == "...-") return "V";
-  if (morse == ".--") return "W"; if (morse == "-..-") return "X";
+  if (morse == ".--") return "W"; if (morse == "-..-") return "X";;
   if (morse == "-.--") return "Y"; if (morse == "--..") return "Z";
-  return ""; // Si no reconoce, no agrega nada
+  if (morse == "-----") return "0";if (morse == ".----") return "1";
+  if (morse == "..---") return "2";if (morse == "...--") return "3";
+  if (morse == "....-") return "4";if (morse == ".....") return "5";
+  if (morse == "-....") return "6";if (morse == "--...") return "7";
+  if (morse == "---..") return "8";if (morse == "----.") return "9";
+  return "?"; // Si no reconoce, no agrega nada
 }
 
 void actualizarPantalla() {
@@ -66,7 +73,7 @@ void actualizarPantalla() {
   // Área del código Morse (Puntos y rayas)
   gfx->fillRect(15, 80, 290, 35, BLACK); 
   gfx->setCursor(15, 85);
-  gfx->setTextSize(4); 
+  gfx->setTextSize(2); 
   gfx->println(mensajeMorse);
 
   gfx->drawFastHLine(0, 120, 320, WHITE); 
@@ -86,7 +93,10 @@ void actualizarPantalla() {
 
 void setup() {
   Serial.begin(115200);
-  if (!gfx->begin()) { Serial.println("Error Pantalla"); }
+  if (!gfx->begin()) {
+    Serial.println("Error Pantalla");
+    while(1);
+  }
   
   gfx->fillScreen(BLACK);
   pinMode(sensorPin, INPUT);
@@ -131,7 +141,7 @@ void loop() {
     }
   }
 
-  // --- PROCESAR LETRA (Final de una letra: pausa de 600ms) ---
+  // --- PROCESAR LETRA (Final de una letra: pausa de 450ms) ---
   if (!transmitiendo && !letraProcesada && (millis() - tiempoApagado > 450) && mensajeMorse != "") {
     String letra = traducirMorse(mensajeMorse);
     palabraCompleta += letra;
@@ -140,7 +150,7 @@ void loop() {
     actualizarPantalla();
   }
 
-  // --- ESPACIO ENTRE PALABRAS (Pausa de 2.5 segundos) ---
+  // --- ESPACIO ENTRE PALABRAS (Pausa de 1 segundos) ---
   if (!transmitiendo && (millis() - tiempoApagado > 1000) && !espacioAgregado && palabraCompleta != "") {
     if (!palabraCompleta.endsWith(" ")) {
       palabraCompleta += " ";
@@ -152,8 +162,8 @@ void loop() {
   if (!transmitiendo && (millis() - tiempoApagado > 5000) && palabraCompleta != "") {
     palabraCompleta = "";
     mensajeMorse = "";
+    letraProcesada = true;
+    espacioAgregado = true;
     actualizarPantalla();
   }
 }
-
-  
